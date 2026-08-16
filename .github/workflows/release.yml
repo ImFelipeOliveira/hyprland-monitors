@@ -1,0 +1,52 @@
+name: Release binaries
+
+# Builds and attaches a prebuilt binary tarball (+ sha256) to every
+# published GitHub release.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-upload:
+    name: Build x86_64-linux binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev libxkbcommon-dev libx11-dev libxcursor-dev \
+            libxrandr-dev libxi-dev libgl1-mesa-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          PKG="hyprland-monitors-${TAG}-x86_64-unknown-linux-gnu"
+          mkdir -p "dist/${PKG}"
+          cp target/release/hyprland-monitors "dist/${PKG}/"
+          cp assets/hyprland-monitors.desktop LICENSE README.md "dist/${PKG}/"
+          tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
+          (cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256")
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            dist/*.tar.gz dist/*.sha256 --clobber

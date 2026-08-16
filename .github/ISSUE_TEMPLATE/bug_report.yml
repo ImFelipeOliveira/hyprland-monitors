@@ -1,0 +1,69 @@
+name: Bug report
+description: Something doesn't work as expected
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! The environment details below
+        matter a lot — Hyprland behaves differently across versions and config providers.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also paste the full status-bar message if the app showed one.
+      placeholder: I dragged HDMI-A-1 to the left and clicked Apply, then...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open hyprland-monitors
+        2. ...
+    validations:
+      required: true
+
+  - type: input
+    id: hyprland-version
+    attributes:
+      label: Hyprland version
+      description: Output of `hyprctl version | head -1`
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Config provider
+      description: Output of `hyprctl systeminfo | grep configProvider` (Omarchy uses Lua)
+      options:
+        - Lua (hyprland.lua / Omarchy)
+        - Classic (.conf)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: monitors
+    attributes:
+      label: Monitor setup
+      description: Output of `hyprctl -j monitors all` (redact serials if you prefer)
+      render: json
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant monitors.lua / monitors.conf content
+      render: text

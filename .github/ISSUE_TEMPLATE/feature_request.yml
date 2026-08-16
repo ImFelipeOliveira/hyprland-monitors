@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an idea or improvement
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      placeholder: I always have to ... and it would be easier if ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: markdown
+    attributes:
+      value: |
+        Note: this project is spec-driven — accepted features become an
+        [OpenSpec](https://github.com/Fission-AI/OpenSpec) change under `openspec/`
+        before implementation. See CONTRIBUTING.md.

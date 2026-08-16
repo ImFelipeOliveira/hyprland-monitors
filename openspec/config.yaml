@@ -1,0 +1,45 @@
+schema: spec-driven
+
+context: |
+  hyprland-monitors: monitor configuration GUI for Hyprland (Lua and classic .conf providers; Omarchy is the Lua case).
+  Tech stack: Rust, egui/eframe 0.36, serde. Queries Hyprland via hyprctl -j; live changes via
+  hyprctl eval 'hl.monitor({...})' (Lua-configured Hyprland rejects `hyprctl keyword`);
+  hotplug via the socket2 event socket.
+  Persists to ~/.config/hypr/monitors.lua in Omarchy's Lua format: hl.monitor({ output, mode, position, scale })
+  or hl.monitor({ output, disabled = true }).
+  Architecture: light ports & adapters, directories mirror layers — src/domain (pure),
+  src/application (ports.rs + session.rs, tested with fakes), src/adapters (hyprctl.rs with provider
+  detection + EvalCompositor/KeywordCompositor, omarchy_lua.rs, hyprland_conf.rs, managed_lines.rs),
+  src/ui (thin egui view). Compositor::apply_layout is ATOMIC (whole layout in one request). Dependency direction: ui -> application -> domain; adapters implement the ports.
+  Documentation, code comments and ALL UI strings in English.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

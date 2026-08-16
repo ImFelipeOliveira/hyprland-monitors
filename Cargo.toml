@@ -1,0 +1,17 @@
+[package]
+name = "hyprland-monitors"
+version = "0.1.0"
+edition = "2024"
+description = "Drag-and-drop monitor configuration GUI for Hyprland (Lua and classic config providers)"
+license = "MIT"
+repository = "https://github.com/ImFelipeOliveira/hyprland-monitors"
+homepage = "https://github.com/ImFelipeOliveira/hyprland-monitors"
+readme = "README.md"
+keywords = ["hyprland", "wayland", "monitor", "display", "gui"]
+categories = ["gui"]
+
+[dependencies]
+eframe = "0.36.1"
+egui = "0.36"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"

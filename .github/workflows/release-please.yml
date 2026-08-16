@@ -1,0 +1,19 @@
+name: Release Please
+
+# Watches conventional commits on main and maintains a release PR.
+# Merging that PR bumps the version, updates CHANGELOG.md, tags, and
+# publishes a GitHub release — which triggers release.yml to attach binaries.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4

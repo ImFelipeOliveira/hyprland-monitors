@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Hyprland Monitors
+GenericName=Monitor Configuration
+Comment=Configure position, resolution and scale of your Hyprland monitors
+Exec=/home/felipeoliveira/.cargo/bin/hyprland-monitors
+Icon=preferences-desktop-display
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=monitor;display;screen;hyprland;omarchy;
