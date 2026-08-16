@@ -73,7 +73,15 @@ not yet been reported against a real classic setup — [reports welcome](https:/
 
 ## Installation
 
-### Prebuilt binary (recommended)
+### Arch Linux (AUR)
+
+```sh
+yay -S hyprland-monitors   # or paru, etc.
+```
+
+The AUR package is updated automatically on every release.
+
+### Prebuilt binary
 
 Grab the latest tarball from the [releases page](https://github.com/ImFelipeOliveira/hyprland-monitors/releases):
 

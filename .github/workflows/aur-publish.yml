@@ -1,0 +1,68 @@
+name: Publish to AUR
+
+# Updates the AUR package on every published release (or manually via
+# workflow_dispatch). Skips gracefully when the AUR secrets are not configured.
+# Required repo secrets: AUR_USERNAME, AUR_EMAIL, AUR_SSH_PRIVATE_KEY.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve tag
+        id: v
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check AUR secrets
+        id: gate
+        env:
+          KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AUR secrets not configured — skipping AUR publish."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update PKGBUILD version and checksum
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          TAG="${{ steps.v.outputs.tag }}"
+          VERSION="${{ steps.v.outputs.version }}"
+          curl -sL "https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz" -o src.tar.gz
+          SHA=$(sha256sum src.tar.gz | cut -d' ' -f1)
+          sed -i \
+            -e "s|^pkgver=.*|pkgver=${VERSION}|" \
+            -e "s|^pkgrel=.*|pkgrel=1|" \
+            -e "s|^sha256sums=.*|sha256sums=('${SHA}')|" \
+            packaging/aur/PKGBUILD
+
+      - name: Publish to AUR
+        if: steps.gate.outputs.enabled == 'true'
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: hyprland-monitors
+          pkgbuild: packaging/aur/PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${{ steps.v.outputs.tag }}"
+          updpkgsums: false
+          test: false

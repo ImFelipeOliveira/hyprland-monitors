@@ -1,11 +1,24 @@
 name: Release binaries
 
-# Builds and attaches a prebuilt binary tarball (+ sha256) to every
-# published GitHub release.
+# Builds and attaches a prebuilt binary tarball (+ sha256) to a GitHub release.
+# Releases created by release-please (GITHUB_TOKEN) do NOT fire the `release`
+# event, so release-please.yml calls this as a reusable workflow; the `release`
+# and `workflow_dispatch` triggers cover manual releases and re-runs.
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.1.0)"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -17,8 +30,12 @@ jobs:
   build-upload:
     name: Build x86_64-linux binary
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
 
       - name: Install system dependencies
         run: |
@@ -36,7 +53,6 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${{ github.event.release.tag_name }}"
           PKG="hyprland-monitors-${TAG}-x86_64-unknown-linux-gnu"
           mkdir -p "dist/${PKG}"
           cp target/release/hyprland-monitors "dist/${PKG}/"
@@ -48,5 +64,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            dist/*.tar.gz dist/*.sha256 --clobber
+          gh release upload "$TAG" dist/*.tar.gz dist/*.sha256 --clobber

@@ -1,0 +1,40 @@
+# Maintainer: Felipe Oliveira <https://github.com/ImFelipeOliveira>
+pkgname=hyprland-monitors
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Drag-and-drop monitor configuration GUI for Hyprland (Lua and classic config providers)"
+arch=('x86_64')
+url="https://github.com/ImFelipeOliveira/hyprland-monitors"
+license=('MIT')
+depends=('hyprland' 'gcc-libs' 'glibc')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('b5969f0d3b514d772344e9afb1a7e09ad7be9e66f958095549176dd20798252d')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm0755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+  install -Dm0644 "assets/$pkgname.desktop" "$pkgdir/usr/share/applications/$pkgname.desktop"
+  # The repo .desktop may carry a development Exec path; normalize for system installs.
+  sed -i "s|^Exec=.*|Exec=$pkgname|" "$pkgdir/usr/share/applications/$pkgname.desktop"
+  install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
