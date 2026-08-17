@@ -239,20 +239,52 @@ impl MonitorState {
         self.lua_entry_with_mode(&self.mode.to_config_string())
     }
 
-    /// Argument for `hyprctl keyword monitor <arg>` (classic .conf provider).
-    pub fn to_keyword_arg(&self) -> String {
+    /// Live-apply Lua entry: unlike persisted entries, EVERY dynamic field is
+    /// explicit. At runtime, fields omitted from `hl.monitor({...})` KEEP their
+    /// current value (verified on real hardware), so an omitted `transform`
+    /// cannot undo a rotation and only `mirror = "none"` un-mirrors. Config
+    /// files can keep omitting defaults — at startup there is no prior state.
+    pub fn to_live_lua_entry(&self) -> String {
         if !self.enabled {
-            return format!("{},disable", self.name);
+            return format!(
+                "hl.monitor({{ output = \"{}\", disabled = true }})",
+                self.name
+            );
         }
         format!(
-            "{},{},{}x{},{}{}",
+            "hl.monitor({{ output = \"{}\", mode = \"{}\", position = \"{}x{}\", scale = {}, transform = {}, vrr = {}, mirror = \"{}\" }})",
             self.name,
             self.mode.to_config_string(),
             self.pos.0,
             self.pos.1,
             format_scale(self.scale),
-            self.classic_extras(",")
+            self.transform,
+            self.vrr,
+            self.mirror_of.as_deref().unwrap_or("none")
         )
+    }
+
+    /// Live-apply keyword argument (classic provider): transform and VRR are
+    /// always explicit for the same keep-on-omission hazard; mirror is only
+    /// appended when set (classic unset semantics are unverified).
+    pub fn to_live_keyword_arg(&self) -> String {
+        if !self.enabled {
+            return format!("{},disable", self.name);
+        }
+        let mut arg = format!(
+            "{},{},{}x{},{},transform,{},vrr,{}",
+            self.name,
+            self.mode.to_config_string(),
+            self.pos.0,
+            self.pos.1,
+            format_scale(self.scale),
+            self.transform,
+            self.vrr
+        );
+        if let Some(src) = &self.mirror_of {
+            arg.push_str(&format!(",mirror,{src}"));
+        }
+        arg
     }
 
     /// `, transform, N`-style suffix shared by the keyword arg and the conf line;
@@ -366,13 +398,12 @@ mod tests {
     fn keyword_and_conf_renderings() {
         let raws = parse_monitors_json(FIXTURE).unwrap();
         let edp = MonitorState::from_raw(raws.iter().find(|r| r.name == "eDP-1").unwrap());
-        assert_eq!(edp.to_keyword_arg(), "eDP-1,1920x1080@144,0x1080,1");
         assert_eq!(
             edp.to_conf_line(),
             "monitor = eDP-1, 1920x1080@144, 0x1080, 1"
         );
         let dp = MonitorState::from_raw(raws.iter().find(|r| r.name == "DP-1").unwrap());
-        assert_eq!(dp.to_keyword_arg(), "DP-1,disable");
+        assert_eq!(dp.to_live_keyword_arg(), "DP-1,disable");
         assert_eq!(dp.to_conf_line(), "monitor = DP-1, disable");
     }
 
@@ -401,13 +432,30 @@ mod tests {
             "hl.monitor({ output = \"eDP-1\", mode = \"1920x1080@144\", position = \"0x1080\", scale = 1, transform = 3, vrr = 1, mirror = \"HDMI-A-1\" })"
         );
         assert_eq!(
-            m.to_keyword_arg(),
+            m.to_live_keyword_arg(),
             "eDP-1,1920x1080@144,0x1080,1,transform,3,vrr,1,mirror,HDMI-A-1"
         );
         assert_eq!(
             m.to_conf_line(),
             "monitor = eDP-1, 1920x1080@144, 0x1080, 1, transform, 3, vrr, 1, mirror, HDMI-A-1"
         );
+    }
+
+    #[test]
+    fn live_entries_are_always_explicit() {
+        let raws = parse_monitors_json(FIXTURE).unwrap();
+        let mut m = MonitorState::from_raw(raws.iter().find(|r| r.name == "eDP-1").unwrap());
+        assert_eq!(
+            m.to_live_lua_entry(),
+            "hl.monitor({ output = \"eDP-1\", mode = \"1920x1080@144\", position = \"0x1080\", scale = 1, transform = 0, vrr = 0, mirror = \"none\" })"
+        );
+        assert_eq!(
+            m.to_live_keyword_arg(),
+            "eDP-1,1920x1080@144,0x1080,1,transform,0,vrr,0"
+        );
+        m.mirror_of = Some("HDMI-A-1".into());
+        assert!(m.to_live_lua_entry().contains("mirror = \"HDMI-A-1\""));
+        assert!(m.to_live_keyword_arg().ends_with(",mirror,HDMI-A-1"));
     }
 
     #[test]
@@ -422,7 +470,6 @@ mod tests {
             m.to_lua_entry(),
             "hl.monitor({ output = \"eDP-1\", mode = \"1920x1080@144\", position = \"0x1080\", scale = 1 })"
         );
-        assert_eq!(m.to_keyword_arg(), "eDP-1,1920x1080@144,0x1080,1");
     }
 
     #[test]

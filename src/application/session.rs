@@ -90,17 +90,24 @@ impl Session {
         let m = &mut self.monitors[i];
         m.mode = mode;
         m.mode_touched = true;
-        self.normalize();
+        self.reflow(i);
     }
 
     pub fn set_scale(&mut self, i: usize, scale: f32) {
         self.monitors[i].scale = scale.clamp(0.25, 4.0);
-        self.normalize();
+        self.reflow(i);
     }
 
     pub fn set_transform(&mut self, i: usize, transform: u8) {
         self.monitors[i].transform = transform.min(7);
-        self.normalize();
+        self.reflow(i);
+    }
+
+    /// A size-changing edit (mode, scale, rotation, re-enable) can make monitor
+    /// `i` overlap its neighbors in place — resolve like a drop at its own position.
+    fn reflow(&mut self, i: usize) {
+        let pos = self.monitors[i].pos;
+        self.finalize_drop(i, pos);
     }
 
     pub fn set_vrr(&mut self, i: usize, vrr: u8) {
@@ -126,8 +133,31 @@ impl Session {
             return Err("At least one monitor must stay enabled.".into());
         }
         self.monitors[i].enabled = enabled;
-        self.normalize();
+        if enabled {
+            // A re-enabled monitor may materialize on top of a neighbor.
+            self.reflow(i);
+        } else {
+            self.normalize();
+        }
         Ok(())
+    }
+
+    /// Last line of defense before talking to the compositor: sweep the enabled
+    /// monitors and push any overlapping one to the nearest free spot. Hyprland
+    /// rejects overlapping layouts outright ("Your monitor layout is set up
+    /// incorrectly"), so an overlapping candidate must never leave the app.
+    fn resolve_all_overlaps(&mut self) {
+        let enabled: Vec<usize> = (0..self.monitors.len())
+            .filter(|&i| self.monitors[i].enabled)
+            .collect();
+        let mut placed: Vec<Rect> = Vec::with_capacity(enabled.len());
+        for &i in &enabled {
+            let r = self.logical_rect(i);
+            let (x, y) = resolve_overlap(r, &placed);
+            self.monitors[i].pos = (x, y);
+            placed.push(Rect::new(x, y, r.w, r.h));
+        }
+        self.normalize();
     }
 
     // ----- apply / confirm / revert -----
@@ -148,7 +178,7 @@ impl Session {
     /// monitor when the compositor's message identifies it. On success a confirm
     /// countdown starts.
     pub fn apply(&mut self, now: Instant) -> Result<(), String> {
-        self.normalize();
+        self.resolve_all_overlaps();
         let revert_layout = self.applied_snapshot.clone();
         if let Err(detail) = self.comp.apply_layout(&self.monitors) {
             let culprit = self
@@ -332,7 +362,7 @@ mod tests {
         }
         fn apply_layout(&self, monitors: &[MonitorState]) -> Result<(), String> {
             self.state.borrow_mut().batch_calls += 1;
-            let entries: Vec<String> = monitors.iter().map(|m| m.to_lua_entry()).collect();
+            let entries: Vec<String> = monitors.iter().map(|m| m.to_live_lua_entry()).collect();
             // Batch semantics: a failing entry rejects the whole chunk; nothing lands.
             if let Some(bad) = self.state.borrow().reject_containing.clone()
                 && let Some(i) = entries.iter().position(|e| e.contains(bad.as_str()))
@@ -528,6 +558,58 @@ mod tests {
         let min_x = a.x.min(b.x);
         let min_y = a.y.min(b.y);
         assert_eq!((min_x, min_y), (0, 0));
+    }
+
+    #[test]
+    fn rotating_top_monitor_resolves_overlap_in_candidate() {
+        // HDMI sits at 0x0 above eDP at 0x1080; rotating HDMI makes it 1080x1920
+        // tall, which would overlap eDP in place.
+        let (mut s, _, _) = setup(None);
+        let hdmi = s
+            .monitors
+            .iter()
+            .position(|m| m.name == "HDMI-A-1")
+            .unwrap();
+        let edp = s.monitors.iter().position(|m| m.name == "eDP-1").unwrap();
+        s.set_transform(hdmi, 1);
+        assert!(!s.logical_rect(hdmi).overlaps(&s.logical_rect(edp)));
+    }
+
+    #[test]
+    fn revert_entries_are_fully_explicit() {
+        // Runtime hl.monitor fields KEEP their value when omitted, so the revert
+        // snapshot must spell out transform/vrr/mirror to actually undo changes.
+        let (mut s, state, _) = setup(None);
+        let edp = s.monitors.iter().position(|m| m.name == "eDP-1").unwrap();
+        let t0 = Instant::now();
+        s.set_transform(edp, 1);
+        s.apply(t0).unwrap();
+        state.borrow_mut().applied.clear();
+
+        s.tick(t0 + Duration::from_secs(CONFIRM_SECS + 1)).unwrap();
+        let applied = state.borrow().applied.clone();
+        let edp_revert = applied
+            .iter()
+            .find(|a| a.contains("output = \"eDP-1\""))
+            .unwrap();
+        assert!(edp_revert.contains("transform = 0"));
+        assert!(edp_revert.contains("vrr = 0"));
+        assert!(edp_revert.contains("mirror = \"none\""));
+    }
+
+    #[test]
+    fn apply_never_sends_overlapping_layout() {
+        let (mut s, _, _) = setup(None);
+        let hdmi = s
+            .monitors
+            .iter()
+            .position(|m| m.name == "HDMI-A-1")
+            .unwrap();
+        let edp = s.monitors.iter().position(|m| m.name == "eDP-1").unwrap();
+        // Force an overlapping candidate behind the setters' backs.
+        s.monitors[hdmi].pos = s.monitors[edp].pos;
+        s.apply(Instant::now()).unwrap();
+        assert!(!s.logical_rect(hdmi).overlaps(&s.logical_rect(edp)));
     }
 
     #[test]

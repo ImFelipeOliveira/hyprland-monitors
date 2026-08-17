@@ -17,6 +17,9 @@ Hyprland's `HL.MonitorSpec` already accepts `transform` (0–7), `vrr` (0/1/2) a
 3. **Profiles via a third port**: `ProfileStore` (list/load/save/delete) keeps the session testable with an in-memory fake. Real adapter stores a single JSON map at `~/.config/hyprland-monitors/profiles.json` (serde). Loading matches monitors by output name, marks loaded modes as touched (profiles pin modes deliberately), leaves unmatched monitors untouched, then normalizes. Loading never touches the compositor — apply stays an explicit user action guarded by the countdown.
 4. **UI placement**: transform/VRR/mirror as comboboxes in the existing settings panel; profiles as a toolbar cluster (list + name field + save/delete). Mirrored monitors show a "mirrors X" subtitle on the canvas.
 
+5. **Live entries are fully explicit** (found in real-hardware testing after the first implementation broke): at runtime, fields omitted from `hl.monitor({...})` KEEP their current value — reapplying an entry without `transform` left the monitor rotated, and only `mirror = "none"` un-mirrors (`mirror = ""` does not). So live apply/revert uses `to_live_lua_entry()` / `to_live_keyword_arg()` with transform, vrr and mirror always spelled out, while persisted entries keep omitting defaults (at startup there is no prior state to inherit).
+6. **Overlap safety on size changes**: `set_transform`/`set_mode`/`set_scale`/re-enable reflow the edited monitor (drop-style overlap resolution at its own position), and `apply()` runs a final sweep (`resolve_all_overlaps`) so an overlapping layout can never reach the compositor — Hyprland rejects those with "Your monitor layout is set up incorrectly".
+
 ## Risks / Trade-offs
 
 - Mirroring semantics in Hyprland ignore the mirrored monitor's position; we still keep its rect on the canvas (labeled) rather than hiding it — simpler and reversible.
