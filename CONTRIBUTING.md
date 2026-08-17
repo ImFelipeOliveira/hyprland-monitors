@@ -10,11 +10,24 @@ Requirements: Rust (stable), a running Hyprland session for manual testing.
 ```sh
 git clone https://github.com/ImFelipeOliveira/hyprland-monitors
 cd hyprland-monitors
+git config core.hooksPath .githooks          # enable the repo's git hooks (once)
 cargo test                                   # unit tests (no compositor needed)
 cargo clippy --all-targets -- -D warnings    # must be clean
 cargo fmt --all                              # rustfmt formatting
 cargo run                                    # needs a live Hyprland session
 ```
+
+### Git hooks
+
+The repo ships its hooks in `.githooks/` — the `git config core.hooksPath`
+line above enables them. They mirror what CI enforces, so failures surface
+before you push:
+
+- `pre-commit` — `cargo fmt --check` + `cargo clippy -D warnings`
+- `commit-msg` — validates Conventional Commits (release-please parses them)
+- `pre-push` — `cargo test`
+
+In a hurry, `--no-verify` skips them (CI will still catch anything real).
 
 The whole apply/confirm/revert/persist flow is unit-tested with in-memory fakes,
 so most changes can be developed and verified without touching a real compositor.

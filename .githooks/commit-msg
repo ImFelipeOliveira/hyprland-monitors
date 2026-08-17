@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# Validates Conventional Commits — release-please parses these to produce
+# version bumps and the CHANGELOG. Bypass with `git commit --no-verify`.
+
+msg_file="$1"
+first_line=$(head -n1 "$msg_file")
+
+# Let git-generated and rebase/fixup messages through.
+case "$first_line" in
+    Merge\ * | Revert\ * | fixup!\ * | squash!\ *) exit 0 ;;
+esac
+
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_./-]+\))?!?: .+'
+
+if ! printf '%s\n' "$first_line" | grep -qE "$pattern"; then
+    echo "commit-msg: not a Conventional Commit:" >&2
+    echo "" >&2
+    echo "  $first_line" >&2
+    echo "" >&2
+    echo "Expected: <type>(<optional scope>): <description>" >&2
+    echo "Types: feat fix docs style refactor perf test build ci chore revert" >&2
+    echo "Examples:" >&2
+    echo "  feat: add monitor rotation support" >&2
+    echo "  fix(ui): clamp drag position to canvas" >&2
+    echo "  feat!: drop classic .conf provider   (breaking change)" >&2
+    exit 1
+fi
