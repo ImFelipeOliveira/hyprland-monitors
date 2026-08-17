@@ -2,7 +2,8 @@
 //! keep/revert → persist state machine. Depends only on the `Compositor` and
 //! `ConfigStore` ports, so the whole flow is unit-tested with fakes.
 
-use crate::application::ports::{Compositor, ConfigStore};
+use crate::application::ports::{Compositor, ConfigStore, ProfileStore};
+use crate::application::profiles::{Profile, ProfileMonitor};
 use crate::domain::geometry::{Rect, normalize_offset, resolve_overlap};
 use crate::domain::monitor::{Mode, MonitorState};
 use std::time::{Duration, Instant};
@@ -21,10 +22,15 @@ pub struct Session {
     confirm: Option<PendingConfirm>,
     comp: Box<dyn Compositor>,
     store: Box<dyn ConfigStore>,
+    profiles: Box<dyn ProfileStore>,
 }
 
 impl Session {
-    pub fn new(comp: Box<dyn Compositor>, store: Box<dyn ConfigStore>) -> Result<Session, String> {
+    pub fn new(
+        comp: Box<dyn Compositor>,
+        store: Box<dyn ConfigStore>,
+        profiles: Box<dyn ProfileStore>,
+    ) -> Result<Session, String> {
         let raws = comp.query()?;
         if raws.is_empty() {
             return Err("Hyprland reported no monitors".into());
@@ -37,6 +43,7 @@ impl Session {
             confirm: None,
             comp,
             store,
+            profiles,
         })
     }
 
@@ -89,6 +96,24 @@ impl Session {
     pub fn set_scale(&mut self, i: usize, scale: f32) {
         self.monitors[i].scale = scale.clamp(0.25, 4.0);
         self.normalize();
+    }
+
+    pub fn set_transform(&mut self, i: usize, transform: u8) {
+        self.monitors[i].transform = transform.min(7);
+        self.normalize();
+    }
+
+    pub fn set_vrr(&mut self, i: usize, vrr: u8) {
+        self.monitors[i].vrr = vrr.min(2);
+    }
+
+    /// Rejects a monitor mirroring itself.
+    pub fn set_mirror(&mut self, i: usize, source: Option<String>) -> Result<(), String> {
+        if source.as_deref() == Some(self.monitors[i].name.as_str()) {
+            return Err("A monitor cannot mirror itself.".into());
+        }
+        self.monitors[i].mirror_of = source;
+        Ok(())
     }
 
     pub fn enabled_count(&self) -> usize {
@@ -216,6 +241,65 @@ impl Session {
         self.store.persist(&self.monitors)?;
         Ok("Settings kept and saved to your Hyprland config.".into())
     }
+
+    // ----- profiles -----
+
+    pub fn profile_names(&self) -> Vec<String> {
+        self.profiles.list().unwrap_or_default()
+    }
+
+    /// Save the current candidate layout under `name` (overwrites an existing profile).
+    pub fn save_profile(&mut self, name: &str) -> Result<String, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Profile name cannot be empty.".into());
+        }
+        let profile: Profile = self
+            .monitors
+            .iter()
+            .map(ProfileMonitor::from_state)
+            .collect();
+        self.profiles.save(name, &profile)?;
+        Ok(format!("Profile \"{name}\" saved."))
+    }
+
+    /// Load a profile into the candidate layout. Connected monitors absent from
+    /// the profile are left untouched; profile entries for disconnected monitors
+    /// are ignored. Nothing is applied to the compositor.
+    pub fn load_profile(&mut self, name: &str) -> Result<String, String> {
+        let Some(profile) = self.profiles.load(name)? else {
+            return Err(format!("Profile \"{name}\" not found."));
+        };
+        // Reject a load that would leave zero enabled monitors.
+        let would_enable = self.monitors.iter().any(|m| {
+            profile
+                .iter()
+                .find(|p| p.name == m.name)
+                .map(|p| p.enabled)
+                .unwrap_or(m.enabled)
+        });
+        if !would_enable {
+            return Err(format!(
+                "Profile \"{name}\" would disable every connected monitor — not loaded."
+            ));
+        }
+        let mut applied = 0;
+        for entry in &profile {
+            if let Some(m) = self.monitors.iter_mut().find(|m| m.name == entry.name) {
+                entry.apply_to(m);
+                applied += 1;
+            }
+        }
+        self.normalize();
+        Ok(format!(
+            "Profile \"{name}\" loaded onto {applied} monitor(s) — click Apply to take effect."
+        ))
+    }
+
+    pub fn delete_profile(&mut self, name: &str) -> Result<String, String> {
+        self.profiles.delete(name)?;
+        Ok(format!("Profile \"{name}\" deleted."))
+    }
 }
 
 #[cfg(test)]
@@ -271,6 +355,30 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct MemProfiles {
+        map: Rc<RefCell<std::collections::BTreeMap<String, Profile>>>,
+    }
+
+    impl ProfileStore for MemProfiles {
+        fn list(&self) -> Result<Vec<String>, String> {
+            Ok(self.map.borrow().keys().cloned().collect())
+        }
+        fn load(&self, name: &str) -> Result<Option<Profile>, String> {
+            Ok(self.map.borrow().get(name).cloned())
+        }
+        fn save(&self, name: &str, profile: &Profile) -> Result<(), String> {
+            self.map
+                .borrow_mut()
+                .insert(name.to_string(), profile.clone());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> Result<(), String> {
+            self.map.borrow_mut().remove(name);
+            Ok(())
+        }
+    }
+
     type Persisted = Rc<RefCell<Vec<MonitorState>>>;
 
     fn setup(reject_containing: Option<&str>) -> (Session, Rc<RefCell<FakeState>>, Persisted) {
@@ -286,7 +394,12 @@ mod tests {
         let store = MemStore {
             persisted: persisted.clone(),
         };
-        let session = Session::new(Box::new(comp), Box::new(store)).unwrap();
+        let session = Session::new(
+            Box::new(comp),
+            Box::new(store),
+            Box::new(MemProfiles::default()),
+        )
+        .unwrap();
         (session, state, persisted)
     }
 
@@ -415,6 +528,76 @@ mod tests {
         let min_x = a.x.min(b.x);
         let min_y = a.y.min(b.y);
         assert_eq!((min_x, min_y), (0, 0));
+    }
+
+    #[test]
+    fn profile_save_load_delete_roundtrip() {
+        let (mut s, _, _) = setup(None);
+        let hdmi = s
+            .monitors
+            .iter()
+            .position(|m| m.name == "HDMI-A-1")
+            .unwrap();
+        s.set_transform(hdmi, 1);
+        s.set_vrr(hdmi, 1);
+        s.save_profile("docked").unwrap();
+        assert_eq!(s.profile_names(), vec!["docked".to_string()]);
+
+        // Change state, then load restores it.
+        s.set_transform(hdmi, 0);
+        s.set_vrr(hdmi, 0);
+        let msg = s.load_profile("docked").unwrap();
+        assert!(msg.contains("Apply"));
+        assert_eq!(s.monitors[hdmi].transform, 1);
+        assert_eq!(s.monitors[hdmi].vrr, 1);
+        assert!(s.monitors[hdmi].mode_touched);
+
+        s.delete_profile("docked").unwrap();
+        assert!(s.profile_names().is_empty());
+    }
+
+    #[test]
+    fn profile_load_ignores_disconnected_monitors() {
+        let (mut s, _, _) = setup(None);
+        s.save_profile("full").unwrap();
+        // Simulate the profile referencing a monitor that is no longer present.
+        let ghost = ProfileMonitor {
+            name: "DP-9".into(),
+            mode: "1920x1080@60".into(),
+            pos: (0, 0),
+            scale: 1.0,
+            enabled: true,
+            transform: 0,
+            vrr: 0,
+            mirror_of: None,
+        };
+        let mut profile: Profile = s.monitors.iter().map(ProfileMonitor::from_state).collect();
+        profile.push(ghost);
+        s.profiles.save("full", &profile).unwrap();
+        let msg = s.load_profile("full").unwrap();
+        assert!(msg.contains("3 monitor(s)"));
+    }
+
+    #[test]
+    fn profile_that_disables_everything_is_rejected() {
+        let (mut s, _, _) = setup(None);
+        let mut profile: Profile = s.monitors.iter().map(ProfileMonitor::from_state).collect();
+        for p in &mut profile {
+            p.enabled = false;
+        }
+        s.profiles.save("dark", &profile).unwrap();
+        let err = s.load_profile("dark").unwrap_err();
+        assert!(err.contains("disable every"));
+        assert!(s.monitors.iter().any(|m| m.enabled)); // untouched
+    }
+
+    #[test]
+    fn cannot_mirror_itself() {
+        let (mut s, _, _) = setup(None);
+        let edp = s.monitors.iter().position(|m| m.name == "eDP-1").unwrap();
+        assert!(s.set_mirror(edp, Some("eDP-1".into())).is_err());
+        assert!(s.set_mirror(edp, Some("HDMI-A-1".into())).is_ok());
+        assert_eq!(s.monitors[edp].mirror_of.as_deref(), Some("HDMI-A-1"));
     }
 
     #[test]

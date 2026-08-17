@@ -36,8 +36,10 @@ coordinate math, no way to lock yourself out of your screens.
   drag; overlaps are resolved automatically on drop; the layout is normalized to
   a `0x0` origin the way Hyprland expects.
 - **Per-monitor settings** — resolution + refresh rate (from the modes the
-  monitor actually advertises), scale, and enable/disable. Disabling your last
-  enabled monitor is refused.
+  monitor actually advertises), scale, rotation/transform (90°/180°/270° and
+  flipped variants, reflected proportionally on the canvas), mirroring another
+  monitor, VRR (off/on/fullscreen-only), and enable/disable. Disabling your
+  last enabled monitor is refused.
 - **Atomic live apply** — the whole layout is applied to the running session in
   a single compositor request, so there is never a transient overlapping state.
 - **Confirm-or-revert countdown** — after applying you get 15 seconds to
@@ -48,6 +50,9 @@ coordinate math, no way to lock yourself out of your screens.
   lines, `monitorv2` blocks and any generic fallback rule.
 - **Hotplug aware** — plugging/unplugging a monitor refreshes the canvas within
   seconds via Hyprland's event socket.
+- **Named profiles** — save layouts as profiles (e.g. "docked", "mobile") and
+  load them back in one click; loading fills the editor, applying stays guarded
+  by the confirm/revert flow. Stored in `~/.config/hyprland-monitors/profiles.json`.
 - **Both config providers** — works with Lua-configured Hyprland (e.g.
   [Omarchy](https://omarchy.org)) *and* the classic `.conf` style, detected
   automatically.
@@ -267,12 +272,12 @@ issues go through [private reporting](SECURITY.md).
 
 Planned as future OpenSpec changes, roughly in order:
 
-- [ ] Rotation / transform support
-- [ ] Monitor mirroring
-- [ ] VRR toggle
+- [x] Rotation / transform support
+- [x] Monitor mirroring
+- [x] VRR toggle
+- [x] Monitor profiles (save/load named layouts)
 - [ ] Validation on a real classic (.conf) Hyprland setup
-- [ ] Monitor profiles (save/load named layouts)
-- [ ] AUR package
+- [ ] AUR package (packaging and CI ready; first publish pending AUR account)
 
 ## Acknowledgments
 

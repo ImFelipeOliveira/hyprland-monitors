@@ -128,15 +128,18 @@ impl App {
                     FontId::proportional(16.0),
                     text_color,
                 );
-                let subtitle = if m.enabled {
+                let subtitle = if !m.enabled {
+                    "disabled".to_string()
+                } else if let Some(src) = &m.mirror_of {
+                    format!("mirrors {src}")
+                } else {
+                    let rotation = if m.transform != 0 { " ⟳" } else { "" };
                     format!(
-                        "{}x{} @ {} Hz",
+                        "{}x{} @ {} Hz{rotation}",
                         m.mode.width,
                         m.mode.height,
                         format_refresh(m.mode.refresh)
                     )
-                } else {
-                    "disabled".to_string()
                 };
                 painter.text(
                     screen_rect.center() + egui::vec2(0.0, 8.0),

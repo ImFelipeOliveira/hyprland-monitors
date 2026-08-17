@@ -2,7 +2,7 @@
 
 use super::App;
 use crate::application::session::Session;
-use crate::domain::monitor::format_scale;
+use crate::domain::monitor::{TRANSFORM_LABELS, VRR_LABELS, format_scale};
 use egui::Color32;
 use std::time::Instant;
 
@@ -10,6 +10,14 @@ impl App {
     pub(super) fn draw_top_bar(&mut self, ui: &mut egui::Ui, now: Instant) {
         let mut apply_clicked = false;
         let mut reload_clicked = false;
+        let mut load_profile: Option<String> = None;
+        let mut save_clicked = false;
+        let mut delete_clicked = false;
+        let profile_names = self
+            .session
+            .as_ref()
+            .map(Session::profile_names)
+            .unwrap_or_default();
         egui::Panel::top("top").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Monitors");
@@ -26,6 +34,41 @@ impl App {
                         .button("🔄 Reload")
                         .on_hover_text("Discards edits and re-reads the current Hyprland state")
                         .clicked();
+
+                    ui.separator();
+                    ui.label("Profile:");
+                    egui::ComboBox::from_id_salt("profiles")
+                        .width(130.0)
+                        .selected_text(self.selected_profile.as_deref().unwrap_or("load…"))
+                        .show_ui(ui, |ui| {
+                            for name in &profile_names {
+                                if ui
+                                    .selectable_label(
+                                        self.selected_profile.as_deref() == Some(name),
+                                        name,
+                                    )
+                                    .clicked()
+                                {
+                                    load_profile = Some(name.clone());
+                                }
+                            }
+                            if profile_names.is_empty() {
+                                ui.label(egui::RichText::new("no saved profiles").weak());
+                            }
+                        });
+                    delete_clicked = ui
+                        .add_enabled(self.selected_profile.is_some(), egui::Button::new("🗑"))
+                        .on_hover_text("Delete the selected profile")
+                        .clicked();
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.profile_name_input)
+                            .hint_text("profile name")
+                            .desired_width(110.0),
+                    );
+                    save_clicked = ui
+                        .button("💾 Save")
+                        .on_hover_text("Save the current layout under this name")
+                        .clicked();
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
@@ -36,6 +79,36 @@ impl App {
                 });
             });
         });
+        if let Some(name) = load_profile
+            && let Some(s) = self.session.as_mut()
+        {
+            match s.load_profile(&name) {
+                Ok(msg) => {
+                    self.selected_profile = Some(name);
+                    self.set_status(msg, false);
+                }
+                Err(e) => self.set_status(e, true),
+            }
+        }
+        if save_clicked && let Some(s) = self.session.as_mut() {
+            let name = self.profile_name_input.clone();
+            match s.save_profile(&name) {
+                Ok(msg) => {
+                    self.selected_profile = Some(name.trim().to_string());
+                    self.set_status(msg, false);
+                }
+                Err(e) => self.set_status(e, true),
+            }
+        }
+        if delete_clicked
+            && let Some(name) = self.selected_profile.take()
+            && let Some(s) = self.session.as_mut()
+        {
+            match s.delete_profile(&name) {
+                Ok(msg) => self.set_status(msg, false),
+                Err(e) => self.set_status(e, true),
+            }
+        }
         if apply_clicked && let Some(s) = self.session.as_mut() {
             match s.apply(now) {
                 Ok(()) => self.set_status("Layout applied — confirm to keep it.", false),
@@ -73,6 +146,16 @@ impl App {
                         m.enabled,
                     )
                 };
+                let (cur_transform, cur_vrr, cur_mirror) = {
+                    let m = &s.monitors[i];
+                    (m.transform, m.vrr, m.mirror_of.clone())
+                };
+                let other_names: Vec<String> = s
+                    .monitors
+                    .iter()
+                    .filter(|m| m.name != name)
+                    .map(|m| m.name.clone())
+                    .collect();
                 ui.add_space(6.0);
                 ui.heading(&name);
                 ui.label(egui::RichText::new(&desc).weak());
@@ -113,6 +196,54 @@ impl App {
                     });
                 if (scale - cur_scale).abs() > f32::EPSILON {
                     s.set_scale(i, scale);
+                }
+
+                ui.add_space(4.0);
+                ui.label("Rotation:");
+                let mut transform = cur_transform;
+                egui::ComboBox::from_id_salt("transform")
+                    .width(220.0)
+                    .selected_text(TRANSFORM_LABELS[transform as usize % 8])
+                    .show_ui(ui, |ui| {
+                        for (v, label) in TRANSFORM_LABELS.iter().enumerate() {
+                            ui.selectable_value(&mut transform, v as u8, *label);
+                        }
+                    });
+                if transform != cur_transform {
+                    s.set_transform(i, transform);
+                }
+
+                ui.add_space(4.0);
+                ui.label("Variable refresh rate:");
+                let mut vrr = cur_vrr;
+                egui::ComboBox::from_id_salt("vrr")
+                    .width(220.0)
+                    .selected_text(VRR_LABELS[vrr as usize % 3])
+                    .show_ui(ui, |ui| {
+                        for (v, label) in VRR_LABELS.iter().enumerate() {
+                            ui.selectable_value(&mut vrr, v as u8, *label);
+                        }
+                    });
+                if vrr != cur_vrr {
+                    s.set_vrr(i, vrr);
+                }
+
+                ui.add_space(4.0);
+                ui.label("Mirror of:");
+                let mut mirror = cur_mirror.clone();
+                egui::ComboBox::from_id_salt("mirror")
+                    .width(220.0)
+                    .selected_text(mirror.as_deref().unwrap_or("None"))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut mirror, None, "None");
+                        for other in &other_names {
+                            ui.selectable_value(&mut mirror, Some(other.clone()), other);
+                        }
+                    });
+                if mirror != cur_mirror
+                    && let Err(e) = s.set_mirror(i, mirror)
+                {
+                    status = Some((e, true));
                 }
 
                 ui.add_space(8.0);

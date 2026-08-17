@@ -76,6 +76,12 @@ pub struct RawMonitor {
     pub y: i32,
     pub scale: f32,
     #[serde(default)]
+    pub transform: u8,
+    #[serde(default)]
+    pub vrr: bool,
+    #[serde(default)]
+    pub mirror_of: String,
+    #[serde(default)]
     pub disabled: bool,
     #[serde(default)]
     pub available_modes: Vec<String>,
@@ -98,7 +104,29 @@ pub struct MonitorState {
     pub pos: (i32, i32),
     pub scale: f32,
     pub enabled: bool,
+    /// Hyprland transform: 0 normal, 1/2/3 = 90°/180°/270°, 4–7 flipped variants.
+    pub transform: u8,
+    /// VRR: 0 off, 1 on, 2 fullscreen-only. Note: `hyprctl -j` reports only a
+    /// boolean, so mode 2 reads back as on/off after a resync.
+    pub vrr: u8,
+    /// Output this monitor mirrors, if any.
+    pub mirror_of: Option<String>,
 }
+
+/// Human-readable labels for the eight Hyprland transform values, index = value.
+pub const TRANSFORM_LABELS: [&str; 8] = [
+    "Normal",
+    "90°",
+    "180°",
+    "270°",
+    "Flipped",
+    "Flipped 90°",
+    "Flipped 180°",
+    "Flipped 270°",
+];
+
+/// Labels for VRR modes, index = value.
+pub const VRR_LABELS: [&str; 3] = ["Off", "On", "Fullscreen only"];
 
 impl MonitorState {
     pub fn from_raw(raw: &RawMonitor) -> MonitorState {
@@ -152,15 +180,26 @@ impl MonitorState {
             pos: (raw.x, raw.y),
             scale: if raw.scale > 0.0 { raw.scale } else { 1.0 },
             enabled: !raw.disabled,
+            transform: raw.transform.min(7),
+            vrr: raw.vrr as u8,
+            mirror_of: match raw.mirror_of.as_str() {
+                "" | "none" => None,
+                other => Some(other.to_string()),
+            },
         }
     }
 
-    /// Size in logical pixels (resolution divided by scale) — what positions are expressed in.
+    /// True for 90°/270° (and their flipped variants): width and height swap.
+    pub fn is_rotated(&self) -> bool {
+        self.transform % 2 == 1
+    }
+
+    /// Size in logical pixels (resolution divided by scale, swapped when rotated)
+    /// — what positions are expressed in.
     pub fn logical_size(&self) -> (i32, i32) {
-        (
-            ((self.mode.width as f32 / self.scale).round() as i32).max(1),
-            ((self.mode.height as f32 / self.scale).round() as i32).max(1),
-        )
+        let w = ((self.mode.width as f32 / self.scale).round() as i32).max(1);
+        let h = ((self.mode.height as f32 / self.scale).round() as i32).max(1);
+        if self.is_rotated() { (h, w) } else { (w, h) }
     }
 
     /// One `hl.monitor({...})` Lua call with an explicit mode string. This single
@@ -174,13 +213,24 @@ impl MonitorState {
                 self.name
             );
         }
+        let mut extras = String::new();
+        if self.transform != 0 {
+            extras.push_str(&format!(", transform = {}", self.transform));
+        }
+        if self.vrr != 0 {
+            extras.push_str(&format!(", vrr = {}", self.vrr));
+        }
+        if let Some(src) = &self.mirror_of {
+            extras.push_str(&format!(", mirror = \"{src}\""));
+        }
         format!(
-            "hl.monitor({{ output = \"{}\", mode = \"{}\", position = \"{}x{}\", scale = {} }})",
+            "hl.monitor({{ output = \"{}\", mode = \"{}\", position = \"{}x{}\", scale = {}{} }})",
             self.name,
             mode,
             self.pos.0,
             self.pos.1,
-            format_scale(self.scale)
+            format_scale(self.scale),
+            extras
         )
     }
 
@@ -195,13 +245,30 @@ impl MonitorState {
             return format!("{},disable", self.name);
         }
         format!(
-            "{},{},{}x{},{}",
+            "{},{},{}x{},{}{}",
             self.name,
             self.mode.to_config_string(),
             self.pos.0,
             self.pos.1,
-            format_scale(self.scale)
+            format_scale(self.scale),
+            self.classic_extras(",")
         )
+    }
+
+    /// `, transform, N`-style suffix shared by the keyword arg and the conf line;
+    /// `sep` is "," for keywords and ", " for the conf file.
+    fn classic_extras(&self, sep: &str) -> String {
+        let mut extras = String::new();
+        if self.transform != 0 {
+            extras.push_str(&format!("{sep}transform{sep}{}", self.transform));
+        }
+        if self.vrr != 0 {
+            extras.push_str(&format!("{sep}vrr{sep}{}", self.vrr));
+        }
+        if let Some(src) = &self.mirror_of {
+            extras.push_str(&format!("{sep}mirror{sep}{src}"));
+        }
+        extras
     }
 
     /// One `monitor = ...` line for monitors.conf (classic provider), with an
@@ -211,12 +278,13 @@ impl MonitorState {
             return format!("monitor = {}, disable", self.name);
         }
         format!(
-            "monitor = {}, {}, {}x{}, {}",
+            "monitor = {}, {}, {}x{}, {}{}",
             self.name,
             mode,
             self.pos.0,
             self.pos.1,
-            format_scale(self.scale)
+            format_scale(self.scale),
+            self.classic_extras(", ")
         )
     }
 
@@ -306,6 +374,55 @@ mod tests {
         let dp = MonitorState::from_raw(raws.iter().find(|r| r.name == "DP-1").unwrap());
         assert_eq!(dp.to_keyword_arg(), "DP-1,disable");
         assert_eq!(dp.to_conf_line(), "monitor = DP-1, disable");
+    }
+
+    #[test]
+    fn rotation_swaps_logical_size() {
+        let raws = parse_monitors_json(FIXTURE).unwrap();
+        let mut edp = MonitorState::from_raw(raws.iter().find(|r| r.name == "eDP-1").unwrap());
+        assert_eq!(edp.logical_size(), (1920, 1080));
+        edp.transform = 1; // 90°
+        assert_eq!(edp.logical_size(), (1080, 1920));
+        edp.transform = 2; // 180° — no swap
+        assert_eq!(edp.logical_size(), (1920, 1080));
+        edp.transform = 5; // flipped 90° — swap
+        assert_eq!(edp.logical_size(), (1080, 1920));
+    }
+
+    #[test]
+    fn advanced_fields_render_in_all_formats() {
+        let raws = parse_monitors_json(FIXTURE).unwrap();
+        let mut m = MonitorState::from_raw(raws.iter().find(|r| r.name == "eDP-1").unwrap());
+        m.transform = 3;
+        m.vrr = 1;
+        m.mirror_of = Some("HDMI-A-1".to_string());
+        assert_eq!(
+            m.to_lua_entry(),
+            "hl.monitor({ output = \"eDP-1\", mode = \"1920x1080@144\", position = \"0x1080\", scale = 1, transform = 3, vrr = 1, mirror = \"HDMI-A-1\" })"
+        );
+        assert_eq!(
+            m.to_keyword_arg(),
+            "eDP-1,1920x1080@144,0x1080,1,transform,3,vrr,1,mirror,HDMI-A-1"
+        );
+        assert_eq!(
+            m.to_conf_line(),
+            "monitor = eDP-1, 1920x1080@144, 0x1080, 1, transform, 3, vrr, 1, mirror, HDMI-A-1"
+        );
+    }
+
+    #[test]
+    fn default_advanced_fields_keep_v01_output() {
+        let raws = parse_monitors_json(FIXTURE).unwrap();
+        let m = MonitorState::from_raw(raws.iter().find(|r| r.name == "eDP-1").unwrap());
+        assert_eq!(m.transform, 0);
+        assert_eq!(m.vrr, 0);
+        assert_eq!(m.mirror_of, None);
+        // Byte-identical to the v0.1.0 renderings.
+        assert_eq!(
+            m.to_lua_entry(),
+            "hl.monitor({ output = \"eDP-1\", mode = \"1920x1080@144\", position = \"0x1080\", scale = 1 })"
+        );
+        assert_eq!(m.to_keyword_arg(), "eDP-1,1920x1080@144,0x1080,1");
     }
 
     #[test]
