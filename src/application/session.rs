@@ -4,7 +4,7 @@
 
 use crate::application::ports::{Compositor, ConfigStore, ProfileStore};
 use crate::application::profiles::{Profile, ProfileMonitor};
-use crate::domain::geometry::{Rect, normalize_offset, resolve_overlap};
+use crate::domain::geometry::{Rect, normalize_offset, resolve_placement};
 use crate::domain::monitor::{Mode, MonitorState};
 use std::time::{Duration, Instant};
 
@@ -63,13 +63,14 @@ impl Session {
             .collect()
     }
 
-    /// Commit a drop at `pos`: resolve overlaps, then shift everything so the
-    /// enabled bounding box starts at 0x0.
+    /// Commit a drop at `pos`: resolve to a valid placement (no overlap, edge-
+    /// attached to a neighbor), then shift everything so the enabled bounding
+    /// box starts at 0x0.
     pub fn finalize_drop(&mut self, i: usize, pos: (i32, i32)) {
         let (w, h) = self.monitors[i].logical_size();
         let others = self.obstacle_rects(i);
         let dropped = Rect::new(pos.0, pos.1, w, h);
-        self.monitors[i].pos = resolve_overlap(dropped, &others);
+        self.monitors[i].pos = resolve_placement(dropped, &others);
         self.normalize();
     }
 
@@ -143,17 +144,19 @@ impl Session {
     }
 
     /// Last line of defense before talking to the compositor: sweep the enabled
-    /// monitors and push any overlapping one to the nearest free spot. Hyprland
-    /// rejects overlapping layouts outright ("Your monitor layout is set up
-    /// incorrectly"), so an overlapping candidate must never leave the app.
-    fn resolve_all_overlaps(&mut self) {
+    /// monitors and push any overlapping or detached one to the nearest valid
+    /// spot. Hyprland rejects overlapping layouts outright ("Your monitor layout
+    /// is set up incorrectly"), and placing each monitor edge-attached to an
+    /// already-placed one keeps the whole layout connected — no gaps or
+    /// vertex-only contact the cursor cannot cross.
+    fn resolve_all_placements(&mut self) {
         let enabled: Vec<usize> = (0..self.monitors.len())
             .filter(|&i| self.monitors[i].enabled)
             .collect();
         let mut placed: Vec<Rect> = Vec::with_capacity(enabled.len());
         for &i in &enabled {
             let r = self.logical_rect(i);
-            let (x, y) = resolve_overlap(r, &placed);
+            let (x, y) = resolve_placement(r, &placed);
             self.monitors[i].pos = (x, y);
             placed.push(Rect::new(x, y, r.w, r.h));
         }
@@ -178,7 +181,7 @@ impl Session {
     /// monitor when the compositor's message identifies it. On success a confirm
     /// countdown starts.
     pub fn apply(&mut self, now: Instant) -> Result<(), String> {
-        self.resolve_all_overlaps();
+        self.resolve_all_placements();
         let revert_layout = self.applied_snapshot.clone();
         if let Err(detail) = self.comp.apply_layout(&self.monitors) {
             let culprit = self
@@ -558,6 +561,24 @@ mod tests {
         let min_x = a.x.min(b.x);
         let min_y = a.y.min(b.y);
         assert_eq!((min_x, min_y), (0, 0));
+    }
+
+    #[test]
+    fn finalize_drop_attaches_detached_monitor() {
+        let (mut s, _, _) = setup(None);
+        let hdmi = s
+            .monitors
+            .iter()
+            .position(|m| m.name == "HDMI-A-1")
+            .unwrap();
+        // Drop HDMI far to the right, floating with a gap — it must come back
+        // flush against eDP, sharing a real edge (not just a vertex).
+        s.finalize_drop(hdmi, (5000, 0));
+        let edp = s.monitors.iter().position(|m| m.name == "eDP-1").unwrap();
+        let a = s.logical_rect(hdmi);
+        let b = s.logical_rect(edp);
+        assert!(!a.overlaps(&b));
+        assert!(a.edge_adjacent(&b));
     }
 
     #[test]
