@@ -9,6 +9,7 @@ mod panels;
 use crate::adapters::hyprctl::{self, ConfigProvider, EvalCompositor, KeywordCompositor};
 use crate::adapters::hyprland_conf::ConfConfigStore;
 use crate::adapters::omarchy_lua::FileConfigStore;
+use crate::adapters::profiles_json::JsonProfileStore;
 use crate::application::ports::{Compositor, ConfigStore};
 use crate::application::session::Session;
 use std::sync::Arc;
@@ -24,6 +25,8 @@ pub struct App {
     drag: Option<canvas::DragState>,
     status: Option<(String, bool)>, // (message, is_error)
     hotplug_dirty: Arc<AtomicBool>,
+    profile_name_input: String,
+    selected_profile: Option<String>,
 }
 
 impl App {
@@ -33,7 +36,11 @@ impl App {
             Ok(pair) => pair,
             Err(e) => return App::fatal_app(e, dirty),
         };
-        match Session::new(comp, store) {
+        let profiles = match JsonProfileStore::default_path() {
+            Ok(path) => JsonProfileStore { path },
+            Err(e) => return App::fatal_app(e, dirty),
+        };
+        match Session::new(comp, store, Box::new(profiles)) {
             Ok(session) => {
                 let ctx = cc.egui_ctx.clone();
                 let flag = dirty.clone();
@@ -48,6 +55,8 @@ impl App {
                     drag: None,
                     status: None,
                     hotplug_dirty: dirty,
+                    profile_name_input: String::new(),
+                    selected_profile: None,
                 }
             }
             Err(e) => App::fatal_app(e, dirty),
@@ -79,6 +88,8 @@ impl App {
             drag: None,
             status: None,
             hotplug_dirty: dirty,
+            profile_name_input: String::new(),
+            selected_profile: None,
         }
     }
 

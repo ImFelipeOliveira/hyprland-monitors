@@ -105,6 +105,9 @@ monitor = , preferred, auto, 1
             pos,
             scale: 1.0,
             enabled: true,
+            transform: 0,
+            vrr: 0,
+            mirror_of: None,
         }
     }
 

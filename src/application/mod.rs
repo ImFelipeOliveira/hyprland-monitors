@@ -2,4 +2,5 @@
 //! about hyprctl, file formats, or egui.
 
 pub mod ports;
+pub mod profiles;
 pub mod session;

@@ -46,7 +46,7 @@ impl Compositor for EvalCompositor {
         query()
     }
     fn apply_layout(&self, monitors: &[MonitorState]) -> Result<(), String> {
-        let chunk: Vec<String> = monitors.iter().map(|m| m.to_lua_entry()).collect();
+        let chunk: Vec<String> = monitors.iter().map(|m| m.to_live_lua_entry()).collect();
         run_expecting_ok(&["eval", &chunk.join("\n")])
     }
 }
@@ -61,7 +61,7 @@ impl Compositor for KeywordCompositor {
     fn apply_layout(&self, monitors: &[MonitorState]) -> Result<(), String> {
         let batch: Vec<String> = monitors
             .iter()
-            .map(|m| format!("keyword monitor {}", m.to_keyword_arg()))
+            .map(|m| format!("keyword monitor {}", m.to_live_keyword_arg()))
             .collect();
         run_expecting_ok(&["--batch", &batch.join(" ; ")])
     }

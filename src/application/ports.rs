@@ -18,3 +18,14 @@ pub trait ConfigStore {
     /// Persist the given layout so it survives compositor restarts.
     fn persist(&self, monitors: &[MonitorState]) -> Result<(), String>;
 }
+
+pub trait ProfileStore {
+    fn list(&self) -> Result<Vec<String>, String>;
+    fn load(&self, name: &str) -> Result<Option<crate::application::profiles::Profile>, String>;
+    fn save(
+        &self,
+        name: &str,
+        profile: &crate::application::profiles::Profile,
+    ) -> Result<(), String>;
+    fn delete(&self, name: &str) -> Result<(), String>;
+}

@@ -9,6 +9,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  typos:
+    name: typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: crate-ci/typos@v1.49.0
+
   check:
     name: fmt + clippy + test
     runs-on: ubuntu-latest
