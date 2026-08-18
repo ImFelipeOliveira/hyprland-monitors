@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/ImFelipeOliveira/hyprland-monitors/compare/v0.1.1...v0.1.2) (2026-08-18)
+
+
+### Features
+
+* enforce edge-attached monitor placement (no gaps or vertex-only contact) ([60e2ea1](https://github.com/ImFelipeOliveira/hyprland-monitors/commit/60e2ea1cea7915854f696ea136993aaf1c8ae86b))
+
 ## [0.1.1](https://github.com/ImFelipeOliveira/hyprland-monitors/compare/v0.1.0...v0.1.1) (2026-08-18)
 
 
