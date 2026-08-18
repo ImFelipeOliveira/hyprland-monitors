@@ -1,6 +1,6 @@
 [package]
 name = "hyprland-monitors"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Drag-and-drop monitor configuration GUI for Hyprland (Lua and classic config providers)"
 license = "MIT"

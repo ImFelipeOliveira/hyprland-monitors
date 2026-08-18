@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/ImFelipeOliveira/hyprland-monitors/compare/v0.1.0...v0.1.1) (2026-08-18)
+
+
+### Features
+
+* rotation, mirroring, VRR and named layout profiles ([#5](https://github.com/ImFelipeOliveira/hyprland-monitors/issues/5)) ([53cf58d](https://github.com/ImFelipeOliveira/hyprland-monitors/commit/53cf58daf8804b95084469f3f7bb721b4065a49f))
+
 ## 0.1.0 (2026-08-16)
 
 
