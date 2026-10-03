@@ -90,12 +90,13 @@ impl Session {
     pub fn set_mode(&mut self, i: usize, mode: Mode) {
         let m = &mut self.monitors[i];
         m.mode = mode;
+        m.scale = mode.nearest_scale(m.scale);
         m.mode_touched = true;
         self.reflow(i);
     }
 
     pub fn set_scale(&mut self, i: usize, scale: f32) {
-        self.monitors[i].scale = scale.clamp(0.25, 4.0);
+        self.monitors[i].scale = self.monitors[i].mode.nearest_scale(scale);
         self.reflow(i);
     }
 
@@ -453,6 +454,38 @@ mod tests {
                 .iter()
                 .any(|a| a.contains("output = \"DP-1\"") && a.contains("disabled = true"))
         );
+    }
+
+    #[test]
+    fn scale_choices_follow_edited_mode_without_applying_live() {
+        let (mut s, state, _) = setup(None);
+        let i = s
+            .monitors
+            .iter()
+            .position(|m| m.name == "HDMI-A-1")
+            .unwrap();
+        s.set_mode(
+            i,
+            Mode {
+                width: 3840,
+                height: 2400,
+                refresh: 60.0,
+            },
+        );
+        s.set_scale(i, 3.0);
+        assert_eq!(s.monitors[i].scale, 3.0);
+        s.set_mode(
+            i,
+            Mode {
+                width: 5120,
+                height: 2160,
+                refresh: 60.0,
+            },
+        );
+        assert_eq!(s.monitors[i].scale, 3.2);
+        s.set_scale(i, 3.0);
+        assert_eq!(s.monitors[i].scale, 3.2);
+        assert!(state.borrow().applied.is_empty());
     }
 
     #[test]
