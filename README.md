@@ -57,6 +57,8 @@ coordinate math, no way to lock yourself out of your screens.
   [Omarchy](https://omarchy.org)) *and* the classic `.conf` style, detected
   automatically.
 
+Scale choices are calculated for each selected monitor’s resolution, from 25% to 400%. Each choice shows the percentage and effective desktop dimensions; for example, 5120×2160 supports 320%, while 3840×2400 supports 300%. Changing resolution keeps the nearest valid scale.
+
 ## Supported setups
 
 The config provider is detected at startup via `hyprctl systeminfo`:

@@ -2,7 +2,7 @@
 
 use super::App;
 use crate::application::session::Session;
-use crate::domain::monitor::{TRANSFORM_LABELS, VRR_LABELS, format_scale};
+use crate::domain::monitor::{TRANSFORM_LABELS, VRR_LABELS};
 use egui::Color32;
 use std::time::Instant;
 
@@ -135,14 +135,13 @@ impl App {
                     ui.label("Select a monitor on the canvas.");
                     return;
                 };
-                let (name, desc, modes, cur_mode, cur_scale, enabled) = {
+                let (name, desc, modes, cur_mode, enabled) = {
                     let m = &s.monitors[i];
                     (
                         m.name.clone(),
                         m.description.clone(),
                         m.modes.clone(),
                         m.mode,
-                        m.scale,
                         m.enabled,
                     )
                 };
@@ -184,14 +183,16 @@ impl App {
                 }
 
                 ui.add_space(4.0);
-                ui.label("Scale:");
+                ui.label("Scale:").on_hover_text("Valid scales for this display resolution, from 25% to 400%. Desktop dimensions are shown in logical pixels.");
+                let mode = s.monitors[i].mode;
+                let cur_scale = s.monitors[i].scale;
                 let mut scale = cur_scale;
                 egui::ComboBox::from_id_salt("scale")
                     .width(220.0)
-                    .selected_text(format_scale(scale))
+                    .selected_text(mode.scale_label(scale))
                     .show_ui(ui, |ui| {
-                        for v in [1.0_f32, 1.25, 1.5, 1.6, 1.75, 2.0] {
-                            ui.selectable_value(&mut scale, v, format_scale(v));
+                        for v in mode.valid_scales() {
+                            ui.selectable_value(&mut scale, v, mode.scale_label(v));
                         }
                     });
                 if (scale - cur_scale).abs() > f32::EPSILON {

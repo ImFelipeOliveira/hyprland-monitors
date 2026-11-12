@@ -40,3 +40,12 @@ The system SHALL prevent disabling a monitor when it is the only enabled monitor
 #### Scenario: Attempt to disable the only monitor
 - **WHEN** only eDP-1 is enabled and the user tries to disable it
 - **THEN** the toggle is rejected and the UI explains that at least one monitor must stay enabled
+
+### Requirement: Mode-aware scaling choices
+The scale menu SHALL list factors from 25% through 400% in 1/120 increments that produce whole logical pixels in both dimensions of the selected monitor's mode. Entries SHALL show percentage, multiplier, and logical desktop dimensions. Changing resolution SHALL select the nearest valid scale if the old scale is invalid. Merely opening the editor SHALL preserve the detected scale, including values outside the offered range.
+
+#### Scenario: Ultrawide and laptop scaling
+- **WHEN** a 5120x2160 monitor is selected
+- **THEN** 320% is offered and 300% is excluded
+- **WHEN** a 3840x2400 monitor is selected
+- **THEN** 300% is offered

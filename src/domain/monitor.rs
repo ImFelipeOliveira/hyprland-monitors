@@ -23,6 +23,43 @@ impl Mode {
         })
     }
 
+    /// Hyprland uses 1/120 scale increments and whole logical pixel sizes.
+    /// Expose the existing editor range (25%–400%), filtered for this mode.
+    pub fn valid_scales(self) -> Vec<f32> {
+        if self.width == 0 || self.height == 0 {
+            return vec![1.0];
+        }
+        (30_u64..=480)
+            .filter(|step| {
+                (u64::from(self.width) * 120).is_multiple_of(*step)
+                    && (u64::from(self.height) * 120).is_multiple_of(*step)
+            })
+            .map(|step| step as f32 / 120.0)
+            .collect()
+    }
+
+    pub fn nearest_scale(self, requested: f32) -> f32 {
+        let requested = if requested.is_finite() {
+            requested
+        } else {
+            1.0
+        };
+        self.valid_scales()
+            .into_iter()
+            .min_by(|a, b| (a - requested).abs().total_cmp(&(b - requested).abs()))
+            .unwrap_or(1.0)
+    }
+
+    pub fn scale_label(self, scale: f32) -> String {
+        format!(
+            "{}% ({}×) — {} × {}",
+            format_scale(scale * 100.0),
+            format_scale(scale),
+            (self.width as f32 / scale).round() as u32,
+            (self.height as f32 / scale).round() as u32
+        )
+    }
+
     /// "1920x1080@144" — the form accepted by hl.monitor's `mode` field.
     pub fn to_config_string(self) -> String {
         format!(
@@ -470,6 +507,72 @@ mod tests {
             m.to_lua_entry(),
             "hl.monitor({ output = \"eDP-1\", mode = \"1920x1080@144\", position = \"0x1080\", scale = 1 })"
         );
+    }
+
+    #[test]
+    fn scales_match_dell_and_laptop_modes() {
+        let dell = Mode {
+            width: 5120,
+            height: 2160,
+            refresh: 60.0,
+        };
+        assert!(dell.valid_scales().contains(&3.2));
+        assert!(!dell.valid_scales().contains(&3.0));
+        assert_eq!(dell.nearest_scale(3.0), 3.2);
+        assert_eq!(dell.scale_label(3.2), "320% (3.2×) — 1600 × 675");
+        let laptop = Mode {
+            width: 3840,
+            height: 2400,
+            refresh: 60.0,
+        };
+        assert!(laptop.valid_scales().contains(&3.0));
+        assert_eq!(laptop.scale_label(3.0), "300% (3×) — 1280 × 800");
+    }
+
+    #[test]
+    fn offered_scales_have_integral_logical_dimensions_and_are_sorted() {
+        for (width, height) in [
+            (5120, 2160),
+            (3840, 2400),
+            (1920, 1080),
+            (1366, 768),
+            (2160, 5120),
+        ] {
+            let mode = Mode {
+                width,
+                height,
+                refresh: 60.0,
+            };
+            let scales = mode.valid_scales();
+            assert!(scales.contains(&1.0));
+            assert!(scales.windows(2).all(|pair| pair[0] < pair[1]));
+            for scale in scales {
+                assert!((0.25..=4.0).contains(&scale));
+                for dimension in [width, height] {
+                    let logical = dimension as f64 / scale as f64;
+                    assert!((logical - logical.round()).abs() < 0.002);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scale_choices_handle_missing_modes_and_nonfinite_requests() {
+        let empty = Mode {
+            width: 0,
+            height: 0,
+            refresh: 0.0,
+        };
+        assert_eq!(empty.valid_scales(), vec![1.0]);
+        assert_eq!(empty.nearest_scale(f32::NAN), 1.0);
+        let mode = Mode {
+            width: 1920,
+            height: 1080,
+            refresh: 60.0,
+        };
+        assert_eq!(mode.nearest_scale(f32::INFINITY), 1.0);
+        assert_eq!(mode.nearest_scale(100.0), 4.0);
+        assert_eq!(mode.nearest_scale(-1.0), 0.25);
     }
 
     #[test]
